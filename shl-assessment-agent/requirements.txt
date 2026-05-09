@@ -1,0 +1,13 @@
+fastapi
+uvicorn
+requests
+beautifulsoup4
+lxml
+pandas
+numpy
+sentence-transformers
+faiss-cpu
+python-dotenv
+groq
+openai
+scikit-learn
