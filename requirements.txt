@@ -11,3 +11,12 @@ python-dotenv
 groq
 openai
 scikit-learn
+fastapi
+uvicorn
+streamlit
+pandas
+sentence-transformers
+faiss-cpu
+groq
+python-dotenv
+torch
