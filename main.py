@@ -1,25 +1,20 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
-from sentence_transformers import SentenceTransformer
-from groq import Groq
-from dotenv import load_dotenv
 import pandas as pd
-import faiss
-import os
-
-load_dotenv()
+import re
 
 app = FastAPI()
 
 df = pd.read_csv("scraper/cleaned_shl_data.csv")
-index = faiss.read_index("scraper/shl_index.faiss")
-model = SentenceTransformer("all-MiniLM-L6-v2")
 
-client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+
+class Message(BaseModel):
+    role: str
+    content: str
 
 
 class ChatRequest(BaseModel):
-    query: str
+    messages: list[Message]
 
 
 @app.get("/health")
@@ -27,57 +22,47 @@ def health():
     return {"status": "ok"}
 
 
+def score_row(row, query):
+    text = f"{row.get('title', '')} {row.get('description', '')}".lower()
+    words = re.findall(r"\w+", query.lower())
+    return sum(1 for word in words if word in text)
+
+
 @app.post("/chat")
 def chat(request: ChatRequest):
-    query = request.query
-
-    query_embedding = model.encode([query])
-    distances, indices = index.search(query_embedding, 5)
-
-    recommendations = []
-    context = ""
-
-    for i in indices[0]:
-        item = {
-            "name": df.iloc[i]["title"],
-            "url": df.iloc[i]["url"],
-            "description": df.iloc[i]["description"]
-        }
-
-        recommendations.append(item)
-
-        context += f"""
-Name: {item['name']}
-Description: {item['description']}
-URL: {item['url']}
-"""
-
-    response = client.chat.completions.create(
-        model="llama-3.1-8b-instant",
-        messages=[
-            {
-                "role": "system",
-                "content": "You are an SHL assessment recommendation assistant. Only recommend SHL assessments from the provided context."
-            },
-            {
-                "role": "user",
-                "content": f"""
-User query:
-{query}
-
-Available SHL assessments:
-{context}
-
-Give a short recommendation explanation.
-"""
-            }
-        ]
+    full_query = " ".join(
+        [m.content for m in request.messages if m.role == "user"]
     )
 
-    answer = response.choices[0].message.content
+    if len(full_query.strip()) < 10:
+        return {
+            "reply": "Please share the hiring role, required skills, and seniority level.",
+            "recommendations": [],
+            "end_of_conversation": False
+        }
+
+    temp = df.copy()
+    temp["score"] = temp.apply(
+        lambda row: score_row(row, full_query),
+        axis=1
+    )
+
+    temp = temp.sort_values(
+        "score",
+        ascending=False
+    ).head(5)
+
+    recommendations = []
+
+    for _, row in temp.iterrows():
+        recommendations.append({
+            "name": row["title"],
+            "url": row["url"],
+            "test_type": "General"
+        })
 
     return {
-        "reply": answer,
+        "reply": "Here are the most relevant SHL assessments based on your requirement.",
         "recommendations": recommendations,
         "end_of_conversation": False
     }
